@@ -1,0 +1,1272 @@
+---
+title: "Data Analyisis for Business - Midterm Project - Group: Mission 42"
+output: pdf_document
+date: "2023-04-04"
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+# Data Analysis For Business - midterm project
+
+### Group: Mission 42
+
+Members:
+- Yaseen Abdulmahdi (277021)
+- Maria Chiara Lischi (271281)
+- Matteo Spadaccia (277141)
+- Eyad Walid (273821)
+
+## Preliminary code
+
+```{r setup, include=FALSE}
+
+# USEFUL LIBRAIRES (INSTALLING AND) LOADING
+
+#install.packages("knitr")
+#install.packages("dplyr")
+#install.packages("mltools")
+#install.packages("data.table")
+#install.packages("ggplot2")
+#install.packages("purrr")
+#install.packages("class")
+#install.packages("caret")
+#install.packages("GGally")
+#install.packages("factoextra")
+#install.packages("mclust")
+
+knitr::opts_chunk$set(echo = TRUE) # sets report
+
+library(dplyr) # imports library to clean "Unknown" replacing with NA
+library(mltools) # imports library to apply the one_hot encoder
+library(data.table) # imports library to apply the one_hot encoder
+library(ggplot2) # imports library to visualize graphs
+library(purrr) # imports library to ease computations
+library(class) # imports library for k-nn
+library(caret) # imports library for data partition
+library(GGally) # imports library for combining geometric objects with transformed data
+library(factoextra) # imports library for extracting and visualizing the output of multivariate data analyses
+#library(mclust) # imports library for clusterng
+```
+
+## Part I - Classification
+
+### Data cleaning and Exploratory data analyisis
+
+#### 1) Data import, cleaning and encoding
+
+```{r}
+
+# IMPORTING TRAIN DATASET
+
+bank_accounts = read.csv("data/bank_accounts_train.csv", sep = ",", dec = ".", header = T, colClasses = "character") # imports train data-set as data-frame from .csv file with relative path
+
+print("Train dataframe:")
+str(bank_accounts)
+
+
+# IMPORTING TEST DATASET
+
+bank_accounts_test <- read.csv("data/bank_accounts_test.csv", sep = ",", dec = ".", header = T, colClasses = "character") # imports test data-set as data-frame from .csv file with relative path
+
+print("Test dataframe:")
+str(bank_accounts_test)
+```
+
+```{r}
+
+# CLEANING TRAIN AND TEST DATA-FRAMES
+
+# generating list of categorical variables
+catVar <- c('Gender', 'Education_Level', 'Marital_Status', 'Card_Category') 
+
+# replacing all the "Unknown" values with NA, only in the selected categorical features, using dplyr library
+cleaned_bank_accounts <- bank_accounts %>% mutate_at(catVar, ~na_if(., "Unknown"))
+cleaned_bank_accounts_test <- bank_accounts_test %>% mutate_at(catVar, ~na_if(., "Unknown"))
+
+# checking for id duplicates
+length(unique(cleaned_bank_accounts$CLIENTNUM)) # checks for id duplicates
+n_occur <- data.frame(table(cleaned_bank_accounts$CLIENTNUM)) # obtains a table with occurrences of each id
+n_occur[n_occur$Freq > 1,] # extracts the duplicated ids and their frequencies
+cleaned_bank_accounts[cleaned_bank_accounts$CLIENTNUM %in% n_occur$Var1[n_occur$Freq > 1],] # two duplicates row
+cleaned_bank_accounts <- slice(cleaned_bank_accounts, 1:(n()-2)) # eliminates duplicates
+
+length(unique(cleaned_bank_accounts_test$CLIENTNUM)) 
+n_occur <- data.frame(table(cleaned_bank_accounts_test$CLIENTNUM)) 
+n_occur[n_occur$Freq > 1,] # no duplicates here
+
+# iterating through the list of numerical variables saved as characters strings to transform them in numerical values
+numVarInChar <- c('Customer_Age', 'Dependent_count', 'Months_on_book', 'Total_Relationship_Count', 'Months_Inactive_12_mon', 'Contacts_Count_12_mon', 'Credit_Limit', 'Total_Revolving_Bal', 'Avg_Open_To_Buy', 'Total_Amt_Chng_Q4_Q1', 'Total_Trans_Amt', 'Total_Trans_Ct', 'Total_Ct_Chng_Q4_Q1', 'Avg_Utilization_Ratio', 'Income') # generates a list of numerical variables saved as characters strings
+for (var in numVarInChar) {
+  cleaned_bank_accounts[[var]] <- as.numeric(cleaned_bank_accounts[[var]])
+  cleaned_bank_accounts_test[[var]] <- as.numeric(cleaned_bank_accounts_test[[var]])
+}
+cleaned_bank_accounts[['Closed_Account']] <- as.numeric(cleaned_bank_accounts[['Closed_Account']])
+
+# printing the cleaned data-frames
+print("Train dataframe:")
+str(cleaned_bank_accounts) 
+
+print("Test dataframe:")
+str(cleaned_bank_accounts_test) 
+```
+
+```{r}
+
+# ENCODING CATEGORICAL VALUES IN TRAIN AND TEST DATA-FRAMES
+
+# factorizing categorical values
+encoded_bank_accounts <- cleaned_bank_accounts # copies the data-frame into a new one to be encoded
+encoded_bank_accounts_test <- cleaned_bank_accounts_test
+
+fact_bank_accounts <- cleaned_bank_accounts # copies the data-frame into a new one to be encoded
+fact_bank_accounts_test <- cleaned_bank_accounts_test
+
+for (var in catVar) {  # iterates through the list of categorical variables to factorize them
+  fact_bank_accounts[[var]] <- as.factor(encoded_bank_accounts[[var]])
+  fact_bank_accounts_test[[var]] <- as.factor(encoded_bank_accounts_test[[var]])
+}                                                                           
+encoded_bank_accounts <- one_hot(as.data.table(fact_bank_accounts)) # encodes the categorical variables
+encoded_bank_accounts_test <- one_hot(as.data.table(fact_bank_accounts_test)) 
+
+# printing data-frame
+str(encoded_bank_accounts) 
+str(encoded_bank_accounts_test) 
+
+```
+
+```{r}
+
+# VISUALIZING VARIABLES THAT PRESENT NA VALUES
+
+# visualizing number of NA values count for each variable
+colSums(is.na(cleaned_bank_accounts)) # outputs a visualization of the NA values count for each variable
+colSums(is.na(cleaned_bank_accounts_test))
+```
+
+#### 2) Exploratory analysis
+
+```{r}
+
+# SUMMARIZING THE DATA
+
+# printing the summary of the cleaned data-frames
+summary(cleaned_bank_accounts) 
+summary(cleaned_bank_accounts_test) 
+```
+
+```{r}
+
+#PLOTTING GRAPHS FOR EACH COUPLE OF VARIABLES IN THE TRAIN DATA
+
+#GGally::ggpairs(cleaned_bank_accounts, cardinality_threshold = 20, columns = (2:20))
+```
+
+```{r}
+
+# DISTRIBUTION OF THE VARIABLE THAT WILL BE USED AS RESPONSE FOR POINTS 3, 4, 5
+
+table(cleaned_bank_accounts$Closed_Account)
+prop.table(table(cleaned_bank_accounts$Closed_Account))
+
+```
+
+```{r}
+
+# PLOTTING THE NUMBER OF ACTIVE AND CLOSED ACCOUNTS BY AGE AND GENDER
+
+# generating list of chosen age bins
+age_ranges = c("01-05","06-10","11-15","16-20","21-25","26-30","31-35","36-40","41-45","46-50","51-55","56-60","61-65","66-70","71-75","76-80","81-85","86-90","91-95","96-100")
+
+# preparing the data-frame skeleton to store values for the stacked histogram 
+Active_and_closed_accounts_by_age_and_gender_DF = data.frame()
+columns = c("age_range","group","accounts") 
+Active_and_closed_accounts_by_age_and_gender_DF = data.frame(matrix(nrow = 0, ncol = length(columns))) # sets the stacked histogram's data-frame columns number
+colnames(Active_and_closed_accounts_by_age_and_gender_DF) = columns # sets the stacked histogram's data-frame columns names
+
+# iterating through the age bins' lower bounds to fill the data-frame with each age bin information
+for (i in seq(from = 1, to = 96, by = 5)) { 
+  
+  # generates a data-frame containing only the information about the accounts in the chosen age range
+  age_ranged_cleaned_bank_accounts <- cleaned_bank_accounts[cleaned_bank_accounts$Customer_Age >= i & cleaned_bank_accounts$Customer_Age <= i+4,] 
+  
+  # extracting data-frames containing only the information about the active / closed accounts, by the one of the chosen age range
+  active_age_ranged_cleaned_bank_accounts <- age_ranged_cleaned_bank_accounts[age_ranged_cleaned_bank_accounts$Closed_Account == 0,]
+  closed_age_ranged_cleaned_bank_accounts <- age_ranged_cleaned_bank_accounts[age_ranged_cleaned_bank_accounts$Closed_Account == 1,]
+  
+  M_active_age_ranged_cleaned_bank_accounts <- active_age_ranged_cleaned_bank_accounts[active_age_ranged_cleaned_bank_accounts$Gender == 'M',] # extracting a data-frame containing only the information about the males' accounts, by the active accounts one
+  F_active_age_ranged_cleaned_bank_accounts <- active_age_ranged_cleaned_bank_accounts[active_age_ranged_cleaned_bank_accounts$Gender == 'F',] # extracts a dataframe containing only the information about the females' accounts, by the active accounts one
+  M_closed_age_ranged_cleaned_bank_accounts <- closed_age_ranged_cleaned_bank_accounts[closed_age_ranged_cleaned_bank_accounts$Gender == 'M',] # extracts a dataframe containing only the information about the males' accounts, by the closed accounts one
+  F_closed_age_ranged_cleaned_bank_accounts <- closed_age_ranged_cleaned_bank_accounts[closed_age_ranged_cleaned_bank_accounts$Gender == 'F',] # extracts a dataframe containing only the information about the females' accounts, by the closed accounts one
+  
+  M_A_row = list(age_range = age_ranges[(i-1)/5+1], group = "Male Active Accounts", accounts = nrow(M_active_age_ranged_cleaned_bank_accounts)) # generates a row containing the count of males' active accounts
+  F_A_row = list(age_range = age_ranges[(i-1)/5+1], group = "Female Active Accounts", accounts = nrow(F_active_age_ranged_cleaned_bank_accounts)) # generates a row containing the count of females' active accounts
+  M_C_row = list(age_range = age_ranges[(i-1)/5+1], group = "Male Closed Accounts", accounts = nrow(M_closed_age_ranged_cleaned_bank_accounts)) # generates a row containing the count of males' closed accounts
+  F_C_row = list(age_range = age_ranges[(i-1)/5+1], group = "Female Closed Accounts", accounts = nrow(F_closed_age_ranged_cleaned_bank_accounts)) # generates a row containing the count of females' closed accounts
+
+  Active_and_closed_accounts_by_age_and_gender_DF <- rbind(Active_and_closed_accounts_by_age_and_gender_DF, M_A_row) # inserts the row about the chosen age range males' active accounts count into the stacked histogram's data-frame
+  Active_and_closed_accounts_by_age_and_gender_DF <- rbind(Active_and_closed_accounts_by_age_and_gender_DF, F_A_row) # inserts the row about the chosen age range females' active accounts count into the stacked histogram's data-frame
+  Active_and_closed_accounts_by_age_and_gender_DF <- rbind(Active_and_closed_accounts_by_age_and_gender_DF, M_C_row) # inserts the row about the chosen age range males' closed accounts count into the stacked histogram's data-frame
+  Active_and_closed_accounts_by_age_and_gender_DF <- rbind(Active_and_closed_accounts_by_age_and_gender_DF, F_C_row) # inserts the row about the chosen age range females' closed accounts count into the stacked histogram's data-frame
+}
+
+print(ggplot(Active_and_closed_accounts_by_age_and_gender_DF[Active_and_closed_accounts_by_age_and_gender_DF$accounts != 0,], aes(fill=group, y=accounts, x=age_range)) + geom_bar(position="stack", stat="identity") + ggtitle("Number Of Active And Closed Accounts By Age And Gender")) # plots the stacked histogram about the number of active and closed accounts by age and gender
+```
+
+We observe an almost normal distribution for both active and closed
+accounts on age ranges for all the groups.
+
+```{r}
+
+# PLOTTING THE NUMBER OF ACTIVE AND CLOSED ACCOUNTS BY MONTHS ON BOOK AND TYPE OF CARD
+
+# generating the list of chosen months on book bins
+months_on_book = c("01-06","07-12","13-18","19-24","25-30","31-36","37-42","43-48","49-54","55-60") 
+
+# filling for each type of card a data-frame containing the information of months on book and active/closed account
+
+# blue card
+Blue_card_active_and_closed_accounts_by_months_on_book_DF = data.frame()
+columns = c("months_on_book","group","accounts") 
+Blue_card_active_and_closed_accounts_by_months_on_book_DF = data.frame(matrix(nrow = 0, ncol = length(columns))) 
+colnames(Blue_card_active_and_closed_accounts_by_months_on_book_DF) = columns
+
+# silver card
+Silver_card_active_and_closed_accounts_by_months_on_book_DF = data.frame()
+columns = c("months_on_book","group","accounts") 
+Silver_card_active_and_closed_accounts_by_months_on_book_DF = data.frame(matrix(nrow = 0, ncol = length(columns))) 
+colnames(Silver_card_active_and_closed_accounts_by_months_on_book_DF) = columns
+
+# gold card
+Gold_card_active_and_closed_accounts_by_months_on_book_DF = data.frame()
+columns = c("months_on_book","group","accounts") 
+Gold_card_active_and_closed_accounts_by_months_on_book_DF = data.frame(matrix(nrow = 0, ncol = length(columns))) 
+colnames(Gold_card_active_and_closed_accounts_by_months_on_book_DF) = columns
+
+# platinum card
+Platinum_card_active_and_closed_accounts_by_months_on_book_DF = data.frame()
+columns = c("months_on_book","group","accounts") 
+Platinum_card_active_and_closed_accounts_by_months_on_book_DF = data.frame(matrix(nrow = 0, ncol = length(columns))) 
+colnames(Platinum_card_active_and_closed_accounts_by_months_on_book_DF) = columns
+
+for (i in seq(from = 1, to = 55, by = 6)) {
+  months_on_book_cleaned_bank_accounts <- cleaned_bank_accounts[cleaned_bank_accounts$Months_on_book >= i & cleaned_bank_accounts$Months_on_book <= i+5,]
+
+# Considering active and closed accounts
+  active_months_on_book_cleaned_bank_accounts <- months_on_book_cleaned_bank_accounts[months_on_book_cleaned_bank_accounts$Closed_Account == 0,]
+  closed_months_on_book_cleaned_bank_accounts <- months_on_book_cleaned_bank_accounts[months_on_book_cleaned_bank_accounts$Closed_Account == 1,]
+  
+# filling for each type of card a data-frame containing the information of months on book and active/closed account
+  
+  # blue card
+  Blue_active_months_on_book_cleaned_bank_accounts <- active_months_on_book_cleaned_bank_accounts[active_months_on_book_cleaned_bank_accounts$Card_Category == 'Blue',]
+  Blue_closed_months_on_book_cleaned_bank_accounts <- closed_months_on_book_cleaned_bank_accounts[closed_months_on_book_cleaned_bank_accounts$Card_Category == 'Blue',]
+  
+  B_A_row = list(months_on_book = months_on_book[(i-1)/6+1], group = "Blue Card Active Accounts", accounts = nrow(Blue_active_months_on_book_cleaned_bank_accounts))
+  B_C_row = list(months_on_book = months_on_book[(i-1)/6+1], group = "Blue Card Closed Accounts", accounts = nrow(Blue_closed_months_on_book_cleaned_bank_accounts))
+  
+  Blue_card_active_and_closed_accounts_by_months_on_book_DF <- rbind(Blue_card_active_and_closed_accounts_by_months_on_book_DF, B_A_row)
+  Blue_card_active_and_closed_accounts_by_months_on_book_DF <- rbind(Blue_card_active_and_closed_accounts_by_months_on_book_DF, B_C_row)
+  
+  # silver card
+  Silver_active_months_on_book_cleaned_bank_accounts <- active_months_on_book_cleaned_bank_accounts[active_months_on_book_cleaned_bank_accounts$Card_Category == 'Silver',]
+  Silver_closed_months_on_book_cleaned_bank_accounts <- closed_months_on_book_cleaned_bank_accounts[closed_months_on_book_cleaned_bank_accounts$Card_Category == 'Silver',]
+  
+  S_A_row = list(months_on_book = months_on_book[(i-1)/6+1], group = "Silver Card Active Accounts", accounts = nrow(Silver_active_months_on_book_cleaned_bank_accounts))
+  S_C_row = list(months_on_book = months_on_book[(i-1)/6+1], group = "Silver Card Closed Accounts", accounts = nrow(Silver_closed_months_on_book_cleaned_bank_accounts))
+  
+  Silver_card_active_and_closed_accounts_by_months_on_book_DF <- rbind(Silver_card_active_and_closed_accounts_by_months_on_book_DF, S_A_row)
+  Silver_card_active_and_closed_accounts_by_months_on_book_DF <- rbind(Silver_card_active_and_closed_accounts_by_months_on_book_DF, S_C_row)
+  
+  # gold card
+  Gold_active_months_on_book_cleaned_bank_accounts <- active_months_on_book_cleaned_bank_accounts[active_months_on_book_cleaned_bank_accounts$Card_Category == 'Gold',]
+  Gold_closed_months_on_book_cleaned_bank_accounts <- closed_months_on_book_cleaned_bank_accounts[closed_months_on_book_cleaned_bank_accounts$Card_Category == 'Gold',]
+  
+  G_A_row = list(months_on_book = months_on_book[(i-1)/6+1], group = "Gold Card Active Accounts", accounts = nrow(Gold_active_months_on_book_cleaned_bank_accounts))
+  G_C_row = list(months_on_book = months_on_book[(i-1)/6+1], group = "Gold Card Closed Accounts", accounts = nrow(Gold_closed_months_on_book_cleaned_bank_accounts))
+  
+  Gold_card_active_and_closed_accounts_by_months_on_book_DF <- rbind(Gold_card_active_and_closed_accounts_by_months_on_book_DF, G_A_row)
+  Gold_card_active_and_closed_accounts_by_months_on_book_DF <- rbind(Gold_card_active_and_closed_accounts_by_months_on_book_DF, G_C_row)
+  
+  # platinum card
+  Platinum_active_months_on_book_cleaned_bank_accounts <- active_months_on_book_cleaned_bank_accounts[active_months_on_book_cleaned_bank_accounts$Card_Category == 'Platinum',]
+  Platinum_closed_months_on_book_cleaned_bank_accounts <- closed_months_on_book_cleaned_bank_accounts[closed_months_on_book_cleaned_bank_accounts$Card_Category == 'Platinum',]
+  
+  P_A_row = list(months_on_book = months_on_book[(i-1)/6+1], group = "Platinum Card Active Accounts", accounts = nrow(Platinum_active_months_on_book_cleaned_bank_accounts))
+  P_C_row = list(months_on_book = months_on_book[(i-1)/6+1], group = "Platinum Card Closed Accounts", accounts = nrow(Platinum_closed_months_on_book_cleaned_bank_accounts))
+  
+  Platinum_card_active_and_closed_accounts_by_months_on_book_DF <- rbind(Platinum_card_active_and_closed_accounts_by_months_on_book_DF, P_A_row)
+  Platinum_card_active_and_closed_accounts_by_months_on_book_DF <- rbind(Platinum_card_active_and_closed_accounts_by_months_on_book_DF, P_C_row)
+}
+
+# plotting the histograms
+print(ggplot(Blue_card_active_and_closed_accounts_by_months_on_book_DF[Blue_card_active_and_closed_accounts_by_months_on_book_DF$months_on_book != "01-06" & Blue_card_active_and_closed_accounts_by_months_on_book_DF$months_on_book != "07-12",], aes(fill=group, y=accounts, x=months_on_book)) + geom_bar(position="stack", stat="identity") + ggtitle("Number Of Active And Closed Accounts By Months On Book For Blue Card"))
+
+
+print(ggplot(Silver_card_active_and_closed_accounts_by_months_on_book_DF[Silver_card_active_and_closed_accounts_by_months_on_book_DF$months_on_book != "01-06" & Silver_card_active_and_closed_accounts_by_months_on_book_DF$months_on_book != "07-12",], aes(fill=group, y=accounts, x=months_on_book)) + geom_bar(position="stack", stat="identity") + ggtitle("Number Of Active And Closed Accounts By Months On Book For Silver Card"))
+
+print(ggplot(Gold_card_active_and_closed_accounts_by_months_on_book_DF[Gold_card_active_and_closed_accounts_by_months_on_book_DF$months_on_book != "01-06" & Gold_card_active_and_closed_accounts_by_months_on_book_DF$months_on_book != "07-12",], aes(fill=group, y=accounts, x=months_on_book)) + geom_bar(position="stack", stat="identity") + ggtitle("Number Of Active And Closed Accounts By Months On Book For Gold Card"))
+
+print(ggplot(Platinum_card_active_and_closed_accounts_by_months_on_book_DF[Platinum_card_active_and_closed_accounts_by_months_on_book_DF$months_on_book != "01-06" & Platinum_card_active_and_closed_accounts_by_months_on_book_DF$months_on_book != "07-12",], aes(fill=group, y=accounts, x=months_on_book)) + geom_bar(position="stack", stat="identity") + ggtitle("Number Of Active And Closed Accounts By Months On Book For Platinum Card"))
+
+```
+
+The number of closed and open accounts it does not depend on months on
+book nor the type of card, since we see an almost normal distribution
+for both of them. The only relationship that effectively stands is that
+the type of card slightly depend on the months on book.
+
+```{r}
+
+# PIE-CHART AND DATA-FRAME FOR CARD TYPE DISTRIBUTION
+
+# preparing the data
+Blue_card_total <- nrow(cleaned_bank_accounts[cleaned_bank_accounts$Card_Category == 'Blue',])
+Silver_card_total <- nrow(cleaned_bank_accounts[cleaned_bank_accounts$Card_Category == 'Silver',])
+Gold_card_total <- nrow(cleaned_bank_accounts[cleaned_bank_accounts$Card_Category == 'Gold',])
+Platinum_card_total <- nrow(cleaned_bank_accounts[cleaned_bank_accounts$Card_Category == 'Platinum',])
+
+# creating the data-frame
+data <- data.frame(group=c("Blue", "Silver", "Gold", "Platinum"), value=c(Blue_card_total, Silver_card_total, Gold_card_total, Platinum_card_total))
+
+# plotting the pie-chart
+print(ggplot(data, aes(x="", y=value, fill=group)) + geom_bar(stat="identity", width=1, color="white") + coord_polar("y", start=0) + theme_void() + ggtitle("Share Of Each Type Of Card Over Total"))
+
+# computing percentages of each card over the total
+Blue_percentage = Blue_card_total / nrow(cleaned_bank_accounts)
+Silver_percentage = Silver_card_total / nrow(cleaned_bank_accounts)
+Gold_percentage = Gold_card_total / nrow(cleaned_bank_accounts)
+Platinum_percentage = Platinum_card_total / nrow(cleaned_bank_accounts)
+
+# creating the data-frame
+Percentage_card_type_DF = data.frame()
+columns = c("Card_type","Percentage") 
+Percentage_card_type_DF = data.frame(matrix(nrow = 0, ncol = length(columns))) 
+colnames(Percentage_card_type_DF) = columns
+
+# filling the data-frame with percentages of each type of card over the total
+Percentage_card_type_DF <- rbind(Percentage_card_type_DF, list(Card_type = "Blue Card", Percentage = Blue_percentage*100))
+Percentage_card_type_DF <- rbind(Percentage_card_type_DF, list(Card_type = "Silver Card", Percentage = Silver_percentage*100))
+Percentage_card_type_DF <- rbind(Percentage_card_type_DF, list(Card_type = "Gold Card", Percentage = Gold_percentage*100))
+Percentage_card_type_DF <- rbind(Percentage_card_type_DF, list(Card_type = "Platinum Card", Percentage = Platinum_percentage*100))
+
+head(Percentage_card_type_DF)
+
+```
+
+The Blue card is unsurprisingly the most common (93.2% share), followed
+by the Silver card (5.5% share), the Gold card (1.2% share) and the
+Platinum (0.2 share). There is a weak positive correlation between the
+months on books and the type of card.
+
+```{r}
+
+# NUMBER OF CLIENTS ON INCOME DISTRIBUTION FOR OPEN AND CLOSED ACCOUNTS
+
+# preparing the data
+income_x = seq(5,200, by = 5)
+active_y = c()
+closed_y = c()
+total_y = c()
+
+for (i in income_x){
+  total_y_DF = cleaned_bank_accounts[cleaned_bank_accounts$Income > i-5 & cleaned_bank_accounts$Income <= i,]
+  
+  active_y_value = nrow(total_y_DF[total_y_DF$Closed_Account == 0,])
+  closed_y_value = nrow(total_y_DF[total_y_DF$Closed_Account == 1,])
+  total_y_value = nrow(total_y_DF)
+  
+  active_y <- append(active_y, active_y_value)
+  closed_y <- append(closed_y, closed_y_value)
+  total_y <- append(total_y, total_y_value)
+}
+
+# plotting the graph
+plot(active_y~income_x, bty="l" , xlab="income (thousands dollars)" , ylab="accounts" , col=rgb(0.2,0.4,0.1,0.7) , lwd=1, pch=0, ylim=c(1,500), cex = 0.1, type = "l")
+lines(closed_y~income_x, col=rgb(0.8,0.4,0.1,0.7) , lwd=1, pch=0, cex = 0.1, type = "l")
+lines(total_y~income_x, col=rgb(0.7,0.2,0.3,0.7) , lwd=1, pch=0, cex = 0.1, type = "l")
+title("Number Of Clients On Income Distribution For Open And Closed Accounts")
+ 
+# legend
+legend("topright", legend = c("Closed accounts", "Open accounts", "Total accounts"), col = c(rgb(0.8,0.4,0.1,0.7), rgb(0.2,0.4,0.1,0.7), rgb(0.7,0.2,0.3,0.7)), pch = c(19,19,19), bty = "n", pt.cex = 2, cex = 1.2, text.col = "black", horiz = F , inset = c(0.1, 0.1))
+```
+
+The percentage of closed accounts over the total is slightly dependent
+on the income. In fact, the percentage of closed over total accounts is
+higher with income below 45 and above 120 thousands dollars of income,
+while we can appreciate a substantial change in that percentage between
+40 and 120 thousands dollars o fincome.
+
+```{r}
+
+# NUMBER OF CLIENTS ON TOTAL REVOLVING BALANCE DISTRIBUTION FOR OPEN AND CLOSED ACCOUNTS
+
+# preparing the data
+rev_balance_x = seq(26,2600, by = 26)
+active_y = c()
+closed_y = c()
+total_y = c()
+
+for (i in rev_balance_x){
+  total_y_DF = cleaned_bank_accounts[cleaned_bank_accounts$Total_Revolving_Bal > i-26 & cleaned_bank_accounts$Total_Revolving_Bal <= i,]
+  
+  active_y_value = nrow(total_y_DF[total_y_DF$Closed_Account == 0,])
+  closed_y_value = nrow(total_y_DF[total_y_DF$Closed_Account == 1,])
+  total_y_value = nrow(total_y_DF)
+  
+  active_y <- append(active_y, active_y_value)
+  closed_y <- append(closed_y, closed_y_value)
+  total_y <- append(total_y, total_y_value)
+}
+
+# plotting the graph
+plot(active_y~rev_balance_x, bty="l" , xlab="Total Revoling Balance (dollars)" , ylab="accounts", col=rgb(0.2,0.4,0.1,0.7) , lwd=1, pch=0, ylim=c(1,150), cex = 0.1, type = "l")
+lines(closed_y~rev_balance_x, col=rgb(0.8,0.4,0.1,0.7) , lwd=1, pch=0, cex = 0.1, type = "l")
+lines(total_y~rev_balance_x, col=rgb(0.7,0.2,0.3,0.7) , lwd=1, pch=0, cex = 0.1, type = "l")
+title("Number Of Clients On Total Revoling Balance For Open And Closed Accounts")
+ 
+# legend
+legend("topleft", legend = c("Closed accounts", "Open accounts", "Total accounts"), col = c(rgb(0.8,0.4,0.1,0.7), rgb(0.2,0.4,0.1,0.7), rgb(0.7,0.2,0.3,0.7)), pch = c(19,19,19), bty = "n", pt.cex = 2, cex = 1.2, text.col = "black", horiz = F , inset = c(0.1, 0.1))
+```
+
+We noticed that clients don't want to close their account when their
+revolving balance gets higher. In fact, while the total accounts are
+normally distributed over the revolving balance amount, the closed
+account percentage over the total firstly decreases, and then, starting
+from an average value of 1500 of revolving balance, increases. This
+means that having a under-average debt with the bank encourages the
+clients to keep their relation with the bank, but when a client has a
+debt with the bank that is over the average, tends to close their
+accounts. Moreover, we observe a peak in the graph at a revolving
+balance of 2500. We assume that this peak is related to a policy of the
+bank that forces the clients to close their account for debts of more
+than 2500. For this reason, clients are forced to either close their
+accounts or keep the revoling value to 2500 and pay the deficit.
+
+```{r}
+
+# NUMBER OF CLIENTS ON AVERAGE UTILIZATION RATIO DISTRIBUTION FOR OPEN AND CLOSED ACCOUNTS
+
+# preparing the data
+utilization_ratio_x = seq(10,1000, by = 10)
+active_y = c()
+closed_y = c()
+total_y = c()
+
+for (i in utilization_ratio_x){
+  total_y_DF = cleaned_bank_accounts[cleaned_bank_accounts$Avg_Utilization_Ratio > i-10 & cleaned_bank_accounts$Avg_Utilization_Ratio <= i,]
+  
+  active_y_value = nrow(total_y_DF[total_y_DF$Closed_Account == 0,])
+  closed_y_value = nrow(total_y_DF[total_y_DF$Closed_Account == 1,])
+  total_y_value = nrow(total_y_DF)
+  
+  active_y <- append(active_y, active_y_value)
+  closed_y <- append(closed_y, closed_y_value)
+  total_y <- append(total_y, total_y_value)
+}
+
+# plotting the graph
+plot(active_y~utilization_ratio_x, bty="l" , xlab="Average Utilization Ratio" , ylab="accounts" , col=rgb(0.2,0.4,0.1,0.7) , lwd=1, pch=0, ylim=c(1,250), cex = 0.1, type = "l")
+lines(closed_y~utilization_ratio_x, col=rgb(0.8,0.4,0.1,0.7) , lwd=1, pch=0, cex = 0.1, type = "l")
+lines(total_y~utilization_ratio_x, col=rgb(0.7,0.2,0.3,0.7) , lwd=1, pch=0, cex = 0.1, type = "l")
+title("Number Of Clients On Average Utilization Ratio For Open And Closed Accounts")
+
+# legend
+legend("topright", legend = c("Closed accounts", "Open accounts", "Total accounts"), col = c(rgb(0.8,0.4,0.1,0.7), rgb(0.2,0.4,0.1,0.7), rgb(0.7,0.2,0.3,0.7)), pch = c(19,19,19), bty = "n", pt.cex = 2, cex = 1.2, text.col = "black", horiz = F, inset = c(0.1, 0.1))
+```
+
+We notice that the percentage of closed accounts over total accounts
+increases with an higher average utilization ratio. Most of the clients
+have an average utilization ratio of 5-10%.
+
+```{r}
+# NUMBER OF CLIENTS ON TOTAL TRANSACTION COUNT DISTRIBUTION FOR OPEN AND CLOSED ACCOUNTS
+
+# preparing the data
+Total_Trans_Ct_x = seq(3,150, by = 3)
+active_y = c()
+closed_y = c()
+total_y = c()
+
+for (i in Total_Trans_Ct_x){
+  total_y_DF = cleaned_bank_accounts[cleaned_bank_accounts$Total_Trans_Ct > i-3 & cleaned_bank_accounts$Total_Trans_Ct <= i,]
+  
+  active_y_value = nrow(total_y_DF[total_y_DF$Closed_Account == 0,])
+  closed_y_value = nrow(total_y_DF[total_y_DF$Closed_Account == 1,])
+  total_y_value = nrow(total_y_DF)
+  
+  active_y <- append(active_y, active_y_value)
+  closed_y <- append(closed_y, closed_y_value)
+  total_y <- append(total_y, total_y_value)
+}
+
+# plotting the graph
+plot(active_y~Total_Trans_Ct_x, bty="l" , xlab="Total Transaction Count" , ylab="number of accounts" , col=rgb(0.2,0.4,0.1,0.7) , lwd=1, pch=0, ylim=c(1,500), cex = 0.1, type = "l")
+lines(closed_y~Total_Trans_Ct_x, col=rgb(0.8,0.4,0.1,0.7) , lwd=1, pch=0, cex = 0.1, type = "l")
+lines(total_y~Total_Trans_Ct_x, col=rgb(0.7,0.2,0.3,0.7) , lwd=1, pch=0, cex = 0.1, type = "l")
+title("Number Of Clients On Total Transaction Count For Open And Closed Accounts")
+
+# legend
+legend("topright", legend = c("Closed accounts", "Open accounts", "Total accounts"), col = c(rgb(0.8,0.4,0.1,0.7), rgb(0.2,0.4,0.1,0.7), rgb(0.7,0.2,0.3,0.7)), pch = c(19,19,19), bty = "n", pt.cex = 2, cex = 1.2, text.col = "black", horiz = F, inset = c(0.1, 0.1))
+```
+
+The percentage of closed accounts over total is quite high until 50,
+then it's very low between 50 and 90 circa, then declines to zero. This
+is a quite neat relation: it appears to be unlikely for a client to
+close his account if his transactions count is greater than 50, and
+extremely unlikely if this value is higher than 90.
+
+```{r}
+
+# PLOTTING THE NUMBER OF ACTIVE AND CLOSED ACCOUNTS ON INACTIVE MONTHS
+
+# generating a list with each month number
+months = c("00", "01","02","03","04","05","06","07","08","09","10","11","12")
+
+# preparing the dat-frame
+Active_and_closed_accounts_on_inactive_months_DF = data.frame() # Creating an empty data-frame that will store the values for the Stacked Histogram
+columns = c("inactive_months","group","accounts") 
+Active_and_closed_accounts_on_inactive_months_DF = data.frame(matrix(nrow = 0, ncol = length(columns))) 
+colnames(Active_and_closed_accounts_on_inactive_months_DF) = columns
+
+for (i in seq(from = 0, to = 12, by = 1)) {
+  inactive_months_cleaned_bank_accounts <- cleaned_bank_accounts[cleaned_bank_accounts$Months_Inactive_12_mon == i,]
+  
+  active_inactive_months_cleaned_bank_accounts <- inactive_months_cleaned_bank_accounts[inactive_months_cleaned_bank_accounts$Closed_Account == 0,]
+  closed_inactive_months_cleaned_bank_accounts <- inactive_months_cleaned_bank_accounts[inactive_months_cleaned_bank_accounts$Closed_Account == 1,]
+  
+  A_row = list(inactive_months = months[i+1], group = "Active Accounts", accounts = nrow(active_inactive_months_cleaned_bank_accounts))
+  C_row = list(inactive_months = months[i+1], group = "Closed Accounts", accounts = nrow(closed_inactive_months_cleaned_bank_accounts))
+  
+  Active_and_closed_accounts_on_inactive_months_DF <- rbind(Active_and_closed_accounts_on_inactive_months_DF, A_row)
+  Active_and_closed_accounts_on_inactive_months_DF <- rbind(Active_and_closed_accounts_on_inactive_months_DF, C_row)
+}
+
+# plotting the grahp
+print(ggplot(Active_and_closed_accounts_on_inactive_months_DF[Active_and_closed_accounts_on_inactive_months_DF$accounts != 0,], aes(fill=group, y=accounts, x=inactive_months)) + geom_bar(position="stack", stat="identity") + ggtitle("Number Of Active And Closed Accounts On Inactive Months"))
+
+```
+
+We notice that the percentage of closed accounts over total accounts
+increases until the fourth inactive month is reached, and then decreases
+again untill the sixth inactive month. Very few people have no months of
+inactivily, while no one has more than six months of inactivity.
+
+### Logistic Regression and k-NN
+
+#### 3) Logistic regression
+
+```{r}
+
+# BOXPLOTS
+
+boxplot(cleaned_bank_accounts$Income ~ cleaned_bank_accounts$Closed_Account, col = c("salmon", "lightgreen"), xlab = "Closed Account", ylab = "Income (thousands dollars)")
+
+```
+
+```{r}
+
+# LOGISTIC REGRESSION USING ONLY INCOME AS REGRESSOR, TO FIND PROBABILITY OF CLOSING THE ACCOUNT
+
+m0 = glm(formula = Closed_Account ~ Income, 
+         family = binomial(link="logit"),
+         data = cleaned_bank_accounts)
+
+summary(m0)
+
+fisher_scoring = function(X, y, p, beta_old){
+  W = p * (1-p)
+  z = X %*% beta_old + W^(-1) * (y-p)
+  beta_new = solve(t(X)%*% apply(X, 2, function(x) W*x)) %*% t(X) %*% (W*z)
+  return(as.numeric(beta_new))
+}
+
+# find estimates by applying our function...
+beta_0 = c(0,0)
+X = cbind(1, cleaned_bank_accounts$Income)
+y = as.numeric(cleaned_bank_accounts$Closed_Account)-1
+p = X%*%beta_0 %>% as.numeric %>% plogis
+#fisher_scoring(X = X, y=y, p = p, beta_old = beta_0)
+
+betas = vector(mode = "list", length=4)
+betas[[1]] = beta_0
+for(i in 2:4){
+  p = as.numeric(plogis(X%*% betas[[i-1]]))
+  betas[[i]] = fisher_scoring(X = X, y=y, p = p, beta_old = betas[[i-1]])
+}
+
+# and compare with estimate found by glm
+plot(0:3, betas %>% map(~.x[2]), pch=16, type="b")
+points(m0$iter, coef(m0)[2], cex=1.3, col=2)
+
+
+# plot predicted logistic curve
+X_new = data.frame(
+  Income = seq(min(cleaned_bank_accounts$Income), max(cleaned_bank_accounts$Income), l=1e3))
+
+p_pred = predict(m0, X_new, type="response")
+plot(cleaned_bank_accounts$Income, as.numeric(cleaned_bank_accounts$Closed_Account), col="blue", 
+     xlab="income", ylab="default")
+lines(X_new$Income, p_pred, col="lightgreen", lwd=4)
+
+# predictions by hand
+p_pred = as.matrix(cbind(1, X_new)) %*% coef(m0) %>% 
+  as.numeric %>%
+  plogis %>%
+  plot(., type="l")
+
+```
+
+There is no substantial relation between income and probability of
+closing the account.
+
+```{r}
+
+# LOGISTIC REGRESSION USING GENDER AND INCOME AS REGRESSORS, TO FIND PROBABILITY OF CLOSING THE ACCOUNT
+
+m2 = glm(formula = Closed_Account ~ Income + Gender_M, 
+         family = binomial(link="logit"),
+         data = encoded_bank_accounts)
+
+summary(m2)
+
+# create grid for predictions
+X_new =
+  expand.grid(
+    Income = seq(min(encoded_bank_accounts$Income), max(encoded_bank_accounts$Income), l=1e3),
+    Gender_M = c(0,1)
+  )
+p_pred = predict(m2, X_new, type = "response")
+X_new$p_pred = p_pred
+
+
+# plot results
+encoded_bank_accounts %>%
+  ggplot(aes(x=Income, y=as.numeric(Closed_Account), group=Gender_M)) + 
+  geom_point(aes(col=Gender_M), alpha=0.2) + 
+  geom_line(aes(y=p_pred, col=Gender_M), data=X_new)
+```
+
+The probability of closing the account increases by 0.0004315 for each
+unit of Income. The probability of closing the account decreases by
+0.2239019 being a male with respect to being a female (and viceversa).
+
+```{r}
+
+# EFFECTS ON INCOME OVER MALES AND FEMALES
+
+m0_males = glm(formula = Closed_Account ~ Income, 
+         family = binomial(link="logit"),
+         data = cleaned_bank_accounts[cleaned_bank_accounts$Gender == "M",])
+
+summary(m0_males)
+
+m0_females = glm(formula = Closed_Account ~ Income, 
+         family = binomial(link="logit"),
+         data = cleaned_bank_accounts[cleaned_bank_accounts$Gender == "F",])
+
+summary(m0_females)
+
+fisher_scoring = function(X, y, p, beta_old){
+  W = p * (1-p)
+  z = X %*% beta_old + W^(-1) * (y-p)
+  beta_new = solve(t(X)%*% apply(X, 2, function(x) W*x)) %*% t(X) %*% (W*z)
+  return(as.numeric(beta_new))
+}
+
+# find estimates by applying our function...
+beta_0 = c(0,0)
+
+X_males = cbind(1, cleaned_bank_accounts[cleaned_bank_accounts$Gender == "M",]$Income)
+X_females = cbind(1, cleaned_bank_accounts[cleaned_bank_accounts$Gender == "F",]$Income)
+
+y_males = as.numeric(cleaned_bank_accounts[cleaned_bank_accounts$Gender == "M",]$Closed_Account)-1
+y_females = as.numeric(cleaned_bank_accounts[cleaned_bank_accounts$Gender == "F",]$Closed_Account)-1
+
+p_males = X_males%*%beta_0 %>% as.numeric %>% plogis
+p_females = X_females%*%beta_0 %>% as.numeric %>% plogis
+#fisher_scoring(X = X, y=y, p = p, beta_old = beta_0)
+
+betas_males = vector(mode = "list", length=10)
+betas_males[[1]] = beta_0
+for(i in 2:10){
+  p = as.numeric(plogis(X_males%*% betas_males[[i-1]]))
+  betas_males[[i]] = fisher_scoring(X = X_males, y = y_males, p = p_males, beta_old = betas_males[[i-1]])
+}
+
+betas_females = vector(mode = "list", length=10)
+betas_females[[1]] = beta_0
+for(i in 2:10){
+  p = as.numeric(plogis(X_females%*% betas_females[[i-1]]))
+  betas_females[[i]] = fisher_scoring(X = X_females, y = y_females, p = p_females, beta_old = betas_females[[i-1]])
+}
+
+# and compare with estimate found by glm
+plot(0:9, betas_males %>% map(~.x[2]), pch=16, type="b")
+points(m0_males$iter, coef(m0_males)[2], cex=1.3, col=2)
+plot(0:9, betas_females %>% map(~.x[2]), pch=16, type="b")
+points(m0_females$iter, coef(m0_females)[2], cex=1.3, col=2)
+
+# plot predicted logistic curve
+X_new = data.frame(
+  Income = seq(min(cleaned_bank_accounts$Income), max(cleaned_bank_accounts$Income), l=1e3))
+
+p_pred_males = predict(m0_males, X_new, type="response")
+plot(cleaned_bank_accounts[cleaned_bank_accounts$Gender == "M",]$Income, as.numeric(cleaned_bank_accounts[cleaned_bank_accounts$Gender == "M",]$Closed_Account), col="#00000030", 
+     xlab="income", ylab="default")
+lines(X_new$Income, p_pred_males, col="#60008060", lwd=4)
+
+p_pred_females = predict(m0_females, X_new, type="response")
+plot(cleaned_bank_accounts[cleaned_bank_accounts$Gender == "F",]$Income, as.numeric(cleaned_bank_accounts[cleaned_bank_accounts$Gender == "F",]$Closed_Account), col="#00000030", 
+     xlab="income", ylab="default")
+lines(X_new$Income, p_pred_females, col="#60008060", lwd=4)
+
+# predictions by hand
+p_pred_males = as.matrix(cbind(1, X_new)) %*% coef(m0_males) %>% 
+  as.numeric %>%
+  plogis %>%
+  plot(., type="l")
+
+p_pred_females = as.matrix(cbind(1, X_new)) %*% coef(m0_females) %>% 
+  as.numeric %>%
+  plogis %>%
+  plot(., type="l")
+```
+
+The income has a minimum effect on the probability of closing or not an
+account for both males and females, however there is an almost
+imperceptible trend. In particular, males with higher income are
+slightly more propense to close their accounts, while an higher income
+negatively affects the females probability of closing their accounts but
+with an even more insignificant correlation.
+
+#### 4) K-NN
+
+```{r}
+
+# PREPARING THE DATASET
+
+set.seed(42)
+
+knn_cleaned_bank_accounts <- cleaned_bank_accounts %>% select(Total_Trans_Amt, Total_Trans_Ct, Closed_Account)
+
+p = 0.8
+division <- createDataPartition(knn_cleaned_bank_accounts$Closed_Account, times = 1, p = p, list = FALSE)
+
+# New sets of covariates and response variables
+knn_train <- knn_cleaned_bank_accounts[division,]
+knn_val <- knn_cleaned_bank_accounts[-division,]
+
+x_train <- knn_train %>% select(Total_Trans_Amt, Total_Trans_Ct)
+y_train <- knn_train$Closed_Account
+
+x_val <- knn_val %>% select(Total_Trans_Amt, Total_Trans_Ct)
+y_val <- knn_val$Closed_Account
+
+# Standardization of training set
+x_train_sc <- scale(x_train)
+
+# Standardization of validation set
+train_m <- apply(x_train, MARGIN = 2, FUN = mean)
+train_s <- apply(x_train, MARGIN = 2, FUN = sd)
+x_val_sc <- scale(x_val, center = train_m, scale = train_s)
+
+
+# IMPLEMENTATION OF K-NN MODEL
+
+k_grid <- 1:80
+
+# Model fitting (& MISC/AUC calculation) for each value of k
+k_results <- sapply(k_grid, FUN = function (kk) {
+  # Model fitting
+  kk_fit_train <- knn(train = x_train, test = x_train, cl = y_train, k = kk, prob = TRUE)
+  kk_fit_val <- knn(train = x_train, test = x_val, cl = y_train, k = kk, prob = TRUE)
+                      
+  # Misclassification error
+  kk_misc_in <- 1 - mean(y_train == kk_fit_train)
+  kk_misc_out <- 1 - mean(y_val == kk_fit_val)
+                      
+  # AUC
+  kk_probyes_in <- ifelse(kk_fit_train == 1, attr(kk_fit_train, "prob"), 1 - attr(kk_fit_train, "prob"))
+  kk_probyes_out <- ifelse(kk_fit_val == 1, attr(kk_fit_val, "prob"), 1 - attr(kk_fit_val, "prob"))
+  kk_auc_in <- pROC::auc(y_train == 1, kk_probyes_in)
+  kk_auc_out <- pROC::auc(y_val == 1, kk_probyes_out)
+                      
+  # Results
+  return(c(kk_misc_in, kk_misc_out, kk_auc_in, kk_auc_out))
+})
+
+
+# EVALUATION
+
+# Evaluation metrics on the grid
+misc_in <- k_results[1, ]
+misc_out <- k_results[2, ]
+auc_in <- k_results[3, ]
+auc_out <- k_results[4, ]
+
+# Plot the performance (MISC)
+plot(k_grid, misc_in, type = "b", lwd = 2, ylim = c(0, 0.3), main = "MISC train VS validation", ylab = "MISC", xlab = 'k')
+lines(k_grid, misc_out, type = "b", lwd = 2, col = 2, lty = 1)
+legend("topright", c("Train", "Validation"), col = c(1, 2), lty = c(1), bty = "n", pch = 21)
+
+# Best k using MISC
+k_best_misc <- k_grid[which.min(misc_out)]
+abline(v = k_best_misc, col = 4, lwd = 2)
+best_misc <- min(misc_out)
+
+# Plot the performance (AUC)
+plot(k_grid, auc_in, type = "b", lwd = 2, ylim = c(0.5, 1), main = "AUC train VS validation", ylab = "AUC", xlab = 'k')
+lines(k_grid, auc_out, type = "b", lwd = 2, col = 2, lty = 1)
+legend("topright", c("Train", "Validation"), col = c(1,2), lty = c(1), bty = "n", pch = 21)
+
+# Best k using AUC
+k_best_auc <- k_grid[which.max(auc_out)]
+abline(v = k_best_auc, col = 4, lwd = 2)
+best_auc <- max(auc_out)
+
+```
+
+Using AUC, we obtained that the k value with best performance is 20,
+using MISC, we obtained 7.
+
+### Implementing our models
+
+#### 5) Model for predicting the individual probabilities of closing an account, with respect to AIC metric
+
+```{r}
+
+factorized_bank_accounts = fact_bank_accounts %>% select(-c(CLIENTNUM, Education_Level, Marital_Status))
+
+# New sets of covariates and response variables
+model_train <- factorized_bank_accounts[division,]
+model_val <- factorized_bank_accounts[-division,]
+
+x_train <- model_train %>% select(-Closed_Account)
+y_train <- model_train$Closed_Account
+
+x_val <- model_val %>% select(-Closed_Account)
+y_val <- model_val$Closed_Account
+
+# MULTIPLE LOGISTIC REGRESSION
+
+# Now, let's try making a full analysis using all the predictors.
+
+logit_fit1 <- glm(Closed_Account ~ .,
+                  family = "binomial",
+                  data = model_train)
+#summary(logit_fit1)
+
+
+# Stepwise variable selection (based on AIC):
+
+# Forward
+logit_fit_aic1 <- step(glm(Closed_Account ~ 1,
+                           family = "binomial",
+                           data = model_train),
+                       scope = formula(logit_fit1),
+                       direction = "forward")
+
+# Backward
+logit_fit_aic2 <- step(logit_fit1,
+                       direction = "backward") 
+
+# Both directions
+logit_fit_aic3 <- step(logit_fit1,
+                       direction = "both")
+
+logit_fit_aic1$aic
+logit_fit_aic2$aic
+logit_fit_aic3$aic
+
+names(model_train)
+names(logit_fit_aic1$coefficients)
+
+
+# Stepwise variable selection (based on BIC):
+
+# Forward
+logit_fit_bic1 <- step(glm(Closed_Account ~ 1,
+                           family = "binomial",
+                           data = model_train),
+                       scope = formula(logit_fit1),
+                       direction = "forward",
+                       k = log(nrow(model_train)))
+
+# Backward
+logit_fit_bic2 <- step(logit_fit1,
+                       direction = "backward",
+                       k = log(nrow(model_train))) 
+
+# Both directions
+logit_fit_bic3 <- step(logit_fit1,
+                       direction = "both",
+                       k = log(nrow(model_train)))
+
+logit_fit_bic1$aic
+logit_fit_bic2$aic
+logit_fit_bic3$aic
+
+names(model_train)
+names(logit_fit_bic1$coefficients)
+
+#setdiff(names(logit_fit_aic1$coefficients),names(logit_fit_aic2$coefficients))
+#setdiff(names(logit_fit_aic2$coefficients),names(logit_fit_aic3$coefficients))
+#setdiff(names(logit_fit_aic3$coefficients),names(logit_fit_aic1$coefficients))
+
+best_model = logit_fit_aic1
+best_model2 = logit_fit_bic1
+```
+
+Every procedure basing on AIC gives the best (lest) AIC score 3028.002,
+excluding the same five predictors: - Customer_Age - Months_on_book -
+Credit_Limit - Avg_Open_To_Buy - Avg_Utilization_Ratio
+
+Every procedure basing on BIC gives the best (lest) AIC score 3029.496
+(similar to best AIC output by the procedure basing on AIC itself). The
+seven excluded predictors are in fact: - Customer_Age - Card_Category
+(different form AIC procedures) - Months_on_book - Credit_Limit -
+Avg_Open_To_Buy - Avg_Utilization_Ratio - Income (different form AIC
+procedures)
+
+However, BIC selects a different model than AIC. This is because BIC is
+stricter and favors simpler models.
+
+#### 6) Treshold tuning to increase gain with respect to a gain matrix
+
+```{r}
+
+# Threshold-based evaluation metrics
+
+# Classic threshold
+tt <- 0.5
+
+# We can use this threshold to turn estimated probabilities into labels
+pred_best <- as.factor(ifelse(best_model$fitted.values > tt, 1, 0))
+
+pred_best2 <- as.factor(ifelse(best_model2$fitted.values > tt, 1, 0))
+
+
+# Training set
+
+# Confusion matrix
+table(pred_best, model_train$Closed_Account)
+
+table(pred_best2, model_train$Closed_Account)
+
+# Accuracy and misclassification error
+(best_acc <- mean(pred_best == model_train$Closed_Account))
+(best_misc <- 1 - best_acc)
+
+(best2_acc <- mean(pred_best2 == model_train$Closed_Account))
+(best2_misc <- 1 - best2_acc)
+
+
+# Validation set
+
+# Predictions for the observations in the validation set
+prob_out_best <- predict(best_model,
+                        newdata = model_val,
+                        type = "response")
+pred_out_best <- as.factor(ifelse(prob_out_best > tt, 1, 0))
+
+prob_out_best2 <- predict(best_model2,
+                        newdata = model_val,
+                        type = "response")
+pred_out_best2 <- as.factor(ifelse(prob_out_best2 > tt, 1, 0))
+
+# Confusion matrix
+table(pred_out_best, model_val$Closed_Account)
+
+table(pred_out_best2, model_val$Closed_Account)
+
+# Accuracy and misclassification error
+(best_acc <- mean(pred_out_best == model_val$Closed_Account))
+(best_misc <- 1 - best_acc)
+(best2_acc <- mean(pred_out_best2 == model_val$Closed_Account))
+(best2_misc <- 1 - best2_acc)
+
+
+# Selection based on a cost matrix
+
+# Cost matrix
+gain_mat <- matrix(c(0, -30, 0, 70),
+                   ncol = 2, 
+                   dimnames = list(c(0, 1),
+                                   c(0, 1)))
+gain_mat
+
+
+# Training set
+
+confmat_best <- table(pred_best, model_train$Closed_Account)
+gain_best = sum(gain_mat * confmat_best)
+confmat_best2 <- table(pred_best2, model_train$Closed_Account)
+gain_best2 = sum(gain_mat * confmat_best2)
+
+
+# Validation set
+
+confmat_out_best <- table(pred_out_best, model_val$Closed_Account)
+gain_out_best = sum(gain_mat * confmat_out_best)
+confmat_out_best2 <- table(pred_out_best2, model_val$Closed_Account)
+gain_out_best2 = sum(gain_mat * confmat_out_best2)
+
+# Threshold-based evaluation metrics tuning threshold
+
+ts = seq(0.05, 0.95, 0.05)
+
+# preparing the data-frame skeleton to store values for various thresholds' gains value in best and best2 cases
+columns = c("t","gain")
+
+best_gains = data.frame()
+best_gains = data.frame(matrix(nrow = 0, ncol = length(columns)))
+colnames(best_gains) = columns
+
+best2_gains = data.frame()
+best2_gains = data.frame(matrix(nrow = 0, ncol = length(columns)))
+colnames(best2_gains) = columns
+
+
+# Tuning threshold
+for (t in ts) {
+  prob_out_best <- predict(best_model,
+                        newdata = model_val,
+                        type = "response")
+  pred_out_best <- as.factor(ifelse(prob_out_best > t, 1, 0))
+
+  prob_out_best2 <- predict(best_model2,
+                        newdata = model_val,
+                        type = "response")
+  pred_out_best2 <- as.factor(ifelse(prob_out_best2 > t, 1, 0))
+
+  # Confusion matrix
+  best_conf_m = table(pred_out_best, model_val$Closed_Account)
+
+  best2_conf_m = table(pred_out_best2, model_val$Closed_Account)
+
+  # Accuracy and misclassification error
+  (best_acc <- mean(pred_out_best == model_val$Closed_Account))
+  (best_misc <- 1 - best_acc)
+  (best2_acc <- mean(pred_out_best2 == model_val$Closed_Account))
+  (best2_misc <- 1 - best2_acc)
+
+  confmat_out_best <- table(pred_out_best, model_val$Closed_Account)
+  gain_out_best = sum(gain_mat * confmat_out_best)
+  confmat_out_best2 <- table(pred_out_best2, model_val$Closed_Account)
+  gain_out_best2 = sum(gain_mat * confmat_out_best2)
+  
+  best_row = list(t = t, gain = gain_out_best)
+  
+  best2_row = list(t = t, gain = gain_out_best2)
+  
+  best_gains = rbind(best_gains,best_row)
+  
+  best2_gains = rbind(best2_gains,best2_row)
+}
+```
+
+On the training set, the model chosen via AIC is better in terms of
+accuracy. This makes sense, since it uses a larger set of covariates.
+
+On the validation set, the model chosen via BIC procedures is better in
+terms of accuracy.
+
+On the training set best model yields a lower cost = larger gain with
+respect to best2 model, while on the validation set both the models
+yields the same cost (gain).
+
+## Part II - Clustering
+
+#### k-Means and Hierarchical clustering
+
+In the code below we will prepare our dataset for the clustering,
+scaling it and removing the outliers.
+
+```{r}
+
+# LOADING THE DATASET 
+
+purchases <- read.csv("data/purchases.csv", header = T, stringsAsFactors = T) # Load the purchases dataset
+summary(purchases)
+
+# Changing the data-set to numeric
+purchases_cl <- purchases[sapply(purchases, is.numeric)]
+
+boxplot(purchases$Fresh, col = c("lightgreen"), ylab = " ")
+boxplot(purchases$Milk, col = c("lightgreen"), ylab = " ")
+boxplot(purchases$Grocery, col = c("lightgreen"), ylab = " ")
+boxplot(purchases$Frozen, col = c("lightgreen"), ylab = " ")
+boxplot(purchases$Detergent, col = c("lightgreen"), ylab = " ")
+boxplot(purchases$Delicatessen, col = c("lightgreen"), ylab = " ")
+
+# from the box-plots, it is clear that the data is skewed, therefore it is important to scale the variables
+
+# Scaling the data
+purchases_sc <- data.frame(scale(purchases_cl))
+
+# Plotting variables pair-wise correlations 
+ggpairs(purchases_sc)
+
+
+# FINDING AND REMOVING THE OUTLIERS
+
+# Function to identify outliers based on IQR
+out_id_iqr <- function (x,     # vector of observations
+                        m) {   # multiplicative constant
+
+  # Compute the interval bounds
+  Q1 <- quantile(x, p = 0.25)
+  Q3 <- quantile(x, p = 0.75)
+  lb <- Q1 - m * IQR(x)
+  ub <- Q3 + m * IQR(x)
+  
+  # Return the ids of the outliers
+  out <- which(x < lb | x > ub)
+  return(out)
+}
+  
+# Fresh
+out_id_iqr(purchases_sc$Fresh, 1.5)   # 20 observations
+out_id_iqr(purchases_sc$Fresh, 3)     # 3  observations
+out_id_iqr(purchases_sc$Fresh, 4.5)   # 1  observation
+out_id_iqr(purchases_sc$Fresh, 6)     # 1  observation
+out_id_iqr(purchases_sc$Fresh, 7.5)   # none
+purchases_sc <- purchases_sc[-c(126, 182, 285),]
+purchases <- purchases[-c(126, 182, 285),]
+out_id_iqr(purchases_sc$Fresh, 3)     # none
+
+# Milk
+out_id_iqr(purchases_sc$Milk, 1.5)   # 28 observations
+out_id_iqr(purchases_sc$Milk, 3)     # 12 observations
+out_id_iqr(purchases_sc$Milk, 6)     # 4  observations
+out_id_iqr(purchases_sc$Milk, 9)     # 1  observation
+out_id_iqr(purchases_sc$Milk, 13)    # none
+purchases_sc <- purchases_sc[-c(48, 86, 87, 182),]
+purchases <- purchases[-c(48, 86, 87, 182),]
+out_id_iqr(purchases_sc$Milk, 6)     # none
+
+# Grocery
+out_id_iqr(purchases_sc$Grocery, 1.5)   # 22 observations
+out_id_iqr(purchases_sc$Grocery, 3)     # 5  observations
+out_id_iqr(purchases_sc$Grocery, 6)     # 1  observation
+out_id_iqr(purchases_sc$Grocery, 9)     # none
+purchases_sc <- purchases_sc[-c(327),]
+purchases <- purchases[-c(327),]
+out_id_iqr(purchases_sc$Grocery, 6)     # none
+
+# Frozen
+out_id_iqr(purchases_sc$Frozen, 1.5)   # 39 observations
+out_id_iqr(purchases_sc$Frozen, 4.5)   # 6  observations
+out_id_iqr(purchases_sc$Frozen, 7.5)   # 2  observations
+out_id_iqr(purchases_sc$Frozen, 13.5)  # 1  observation
+out_id_iqr(purchases_sc$Frozen, 21)    # none
+purchases_sc <- purchases_sc[-c(91, 319),]
+purchases <- purchases[-c(91, 319),]
+out_id_iqr(purchases_sc$Frozen, 7.5)   # none
+
+# Detergent
+out_id_iqr(purchases_sc$Detergent, 1.5)   # 26 observations
+out_id_iqr(purchases_sc$Detergent, 3)     # 9  observations
+out_id_iqr(purchases_sc$Detergent, 6)     # 1  observations
+out_id_iqr(purchases_sc$Detergent, 9)     # none
+purchases_sc <- purchases_sc[-c(61),]
+purchases <- purchases[-c(61),]
+out_id_iqr(purchases_sc$Detergent, 6)     # none
+
+# Delicatessen
+out_id_iqr(purchases_sc$Delicatessen, 1.5)   # 23 observations
+out_id_iqr(purchases_sc$Delicatessen, 3)     # 7  observations
+out_id_iqr(purchases_sc$Delicatessen, 6)     # 3  observations
+out_id_iqr(purchases_sc$Delicatessen, 10.5)  # 1  observation
+out_id_iqr(purchases_sc$Delicatessen, 33)    # none
+purchases_sc <- purchases_sc[-c(24, 70, 84),]
+purchases <- purchases[-c(24, 70, 84),]
+out_id_iqr(purchases_sc$Delicatessen, 6)     # none
+
+```
+
+Now that the data is prepared, we can proceed with the hierarchical
+clustering
+
+```{r}
+
+# HIERARCHICAL CLUSTERING
+
+# Euclidean distance
+purchases_eucl <- factoextra::get_dist(purchases_sc, method = "euclidean")
+factoextra::fviz_dist(purchases_eucl)
+
+# Pearson correlation
+purchases_pear <- factoextra::get_dist(purchases_sc, method = "pearson")
+factoextra::fviz_dist(purchases_pear)
+
+### Euclidean distance ###
+
+# Within Sum of Squares
+factoextra::fviz_nbclust(x = purchases_sc, FUNcluster = factoextra::hcut, #hierarchical clustering
+                         diss = purchases_eucl,         #Euclidean distance       
+                         method = "wss",                #WSS
+                         k.max = 20)                    #maximum value for k
+
+# Silhouette
+factoextra::fviz_nbclust(x = purchases_sc, FUNcluster = factoextra::hcut, diss = purchases_eucl,          
+                         method = "silhouette",       
+                         k.max = 20)   
+
+# Hierarchical clustering using the optimal number of groups chosen via silhouette
+hier_eucl <- factoextra::hcut(x = purchases_eucl, 
+                              k = 5,
+                              hc_method = "ward.D2")   #agglomeration method
+
+# Dendrogram
+factoextra::fviz_dend(x = hier_eucl) 
+
+# Visualization of clustering results
+factoextra::fviz_cluster(object = hier_eucl, purchases_sc)
+
+```
+
+```{r}
+
+# K-MEANS
+
+# Within Sum of Squares
+factoextra::fviz_nbclust(purchases_sc,
+                         FUNcluster = kmeans,
+                         method = "wss")
+
+# Silhouette
+factoextra::fviz_nbclust(purchases_sc, FUNcluster = kmeans,
+                         method = "silhouette")
+# kmeans with Silhouette finds 2 clusters.
+
+# Actual implementation of kmeans
+km <- kmeans(purchases_sc, centers = 2)
+
+# Visualization of clustering results
+factoextra::fviz_cluster(object = km, purchases_sc)
+
+# Compare clustering results
+mclust::adjustedRandIndex(km$cluster, hier_eucl$cluster)
+```
+
+We can compare the agreement between different clustering partitions
+using a variety of methods. We have decide to use one the Adjusted Rand
+Index, which is defined between -1 (perfect disagreement) and 1 (perfect
+agreement), and has expected value equal to zero in the case of random
+partition. In our case the number is 0.1392992 which has almost a value
+that is close to zero since it's a random partition.
+
+#### Confusion Matrix
+
+```{r}
+
+verification <- as.factor(ifelse(purchases$Channel == "Retail", 2, 1))
+
+
+# Confusion matrix
+clustering_conf_m = table(km$cluster, verification)
+
+clustering_conf_m
+```
